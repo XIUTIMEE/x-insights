@@ -561,12 +561,22 @@ function scheduleSave(){
   _saveTimer = setTimeout(saveToGitHub, 1200);
 }
 
+async function fetchOverridesSHA(){
+  const token = getToken();
+  if(!token) return;
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/data/overrides.json?ref=${GITHUB_BRANCH}`,
+      { headers: { Authorization: `token ${token}` } }
+    );
+    if(res.ok){ const m = await res.json(); _dataFileSHA = m.sha; }
+  } catch(e){ /* silent */ }
+}
+
 async function saveToGitHub(){
   const token = getToken();
-  if(!token){ showToast('请先连接 GitHub Token 才能保存', 'warning'); return; }
+  if(!token){ showToast('请先连接 GitHub Token 才能保存', 'warning'); showTokenModal(); return; }
 
-  // Save ONLY overrides to a tiny separate file (data/overrides.json)
-  // This avoids the 1MB GitHub API limit caused by encoding the full 2MB accounts file
   const overrides = {
     categories:     window.CUSTOM_OVERRIDES  || {},
     unsubscribe:    window.UNSUB_OVERRIDES   || {},
@@ -574,23 +584,24 @@ async function saveToGitHub(){
     recently_added: window.RECENTLY_ADDED    || [],
     saved_at: new Date().toISOString()
   };
-
   const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(overrides, null, 2))));
 
   try {
-    // Get current SHA of overrides.json (if it exists)
+    // Always fetch current SHA fresh (handles first save + SHA-after-token-reconnect)
     const metaRes = await fetch(
       `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/data/overrides.json?ref=${GITHUB_BRANCH}`,
       { headers: { Authorization: `token ${token}` } }
     );
     const body = { message: `overrides: ${new Date().toLocaleString('zh-CN')}`, content: encoded, branch: GITHUB_BRANCH };
-    if(metaRes.ok){ const m = await metaRes.json(); body.sha = m.sha; }
+    if(metaRes.ok){ const m = await metaRes.json(); body.sha = m.sha; _dataFileSHA = m.sha; }
 
     const res = await fetch(
       `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/data/overrides.json`,
       { method: 'PUT', headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
     );
     if(!res.ok){ const e=await res.json(); throw new Error(e.message); }
+    const saved = await res.json();
+    _dataFileSHA = saved.content.sha;
     showToast('已同步到 GitHub ✓', 'success');
   } catch(e){
     console.error('GitHub save error:', e);
