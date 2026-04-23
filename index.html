@@ -542,15 +542,15 @@ const GITHUB_REPO  = 'x-insights';
 const GITHUB_BRANCH = 'main';
 const DATA_PATH    = 'data/accounts.json';
 
-// Token stored in sessionStorage so user enters it once per session
+// Token stored in localStorage so user only enters it once ever
 // (never hardcoded in source)
 let _ghToken = null;
 function getToken(){
   if(_ghToken) return _ghToken;
-  _ghToken = sessionStorage.getItem('gh_token');
+  _ghToken = localStorage.getItem('gh_token');
   return _ghToken;
 }
-function setToken(t){ _ghToken = t; sessionStorage.setItem('gh_token', t); }
+function setToken(t){ _ghToken = t; localStorage.setItem('gh_token', t); }
 
 let _dataFileSHA = null; // GitHub file SHA needed for updates
 
@@ -611,16 +611,17 @@ async function loadFromGitHub(){
   const token = getToken();
   const apiHeaders = token ? { Authorization: `token ${token}` } : {};
   try {
-    // Step 1: raw JSON (fast, no base64, works on public repos without token)
+    // Parallel: fetch raw JSON + fetch SHA metadata at the same time
     const rawUrl = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${DATA_PATH}?t=${Date.now()}`;
-    const rawRes = await fetch(rawUrl, { headers: apiHeaders });
+    const metaUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_PATH}?ref=${GITHUB_BRANCH}`;
+    const [rawRes, metaRes] = await Promise.all([
+      fetch(rawUrl, { headers: apiHeaders }),
+      fetch(metaUrl, { headers: apiHeaders })
+    ]);
     if(!rawRes.ok) throw new Error('raw HTTP ' + rawRes.status);
     const json = await rawRes.json();
-    // Step 2: get SHA separately (needed for saves) — only if token available
-    if(token){
-      const metaRes = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_PATH}?ref=${GITHUB_BRANCH}`, { headers: apiHeaders });
-      if(metaRes.ok){ const meta = await metaRes.json(); _dataFileSHA = meta.sha; }
-    }
+    // Store SHA for saves (works even without token on public repos)
+    if(metaRes.ok){ const meta = await metaRes.json(); _dataFileSHA = meta.sha; }
     return json;
   } catch(e){
     console.error('GitHub load error:', e);
@@ -632,7 +633,7 @@ async function loadFromGitHub(){
 let ACCOUNTS_DATA = [];
 
 /* ============================================================
-   GITHUB TOKEN MODAL — shown once per session if no token set
+   GITHUB TOKEN MODAL — shown once ever (token saved to localStorage)
    ============================================================ */
 function showTokenModal(){
   if(document.getElementById('tokenModal')) return;
@@ -643,8 +644,8 @@ function showTokenModal(){
     <div style="background:var(--card);border-radius:16px;padding:32px;max-width:440px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.2)">
       <div style="font-size:18px;font-weight:700;margin-bottom:8px">连接到 GitHub</div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6">
-        输入你的 GitHub Personal Access Token，页面的所有操作将实时保存到你的仓库，刷新后依然保留。<br>
-        <a href="https://github.com/settings/tokens" target="_blank" style="color:var(--accent)">生成 Token →</a>（需要 <code>repo</code> 权限）
+        输入后将<strong>永久保存在此浏览器</strong>，之后打开无需重新输入。你对账号的所有修改都会自动同步到 GitHub。<br><br>
+        <a href="https://github.com/settings/tokens" target="_blank" style="color:var(--accent)">没有 Token？点这里生成 →</a>（需要勾选 <code>repo</code> 权限）
       </div>
       <input id="tokenInput" type="password" placeholder="ghp_xxxxxxxxxxxx"
         style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;color:var(--text);background:var(--surface);margin-bottom:12px">
@@ -665,7 +666,12 @@ function showTokenModal(){
     if(!test.ok){ document.getElementById('tokenError').style.display=''; document.getElementById('tokenError').textContent='Token 无效或无权限，请重试'; document.getElementById('tokenSave').textContent='连接'; return; }
     setToken(t);
     modal.remove();
-    showToast('GitHub 已连接 ✓', 'success');
+    showToast('GitHub 已连接 ✓ Token 已永久保存', 'success');
+    // Now fetch SHA so saves will work immediately
+    fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_PATH}?ref=${GITHUB_BRANCH}`,
+      { headers:{ Authorization:`token ${t}` } })
+      .then(r=>r.json()).then(m=>{ if(m.sha) _dataFileSHA=m.sha; })
+      .catch(()=>{});
   };
   document.getElementById('tokenSkip').onclick = () => {
     modal.remove();
