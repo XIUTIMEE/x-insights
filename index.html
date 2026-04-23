@@ -613,15 +613,15 @@ async function saveToGitHub(){
   const token = getToken();
   if(!token){
     showTokenModal();
-    // Wait for token then retry
     await new Promise(res => {
       const check = setInterval(()=>{ if(getToken()){ clearInterval(check); res(); }}, 300);
-      setTimeout(()=>{ clearInterval(check); res(); }, 30000); // timeout 30s
+      setTimeout(()=>{ clearInterval(check); res(); }, 30000);
     });
     if(!getToken()) return;
   }
 
   setSaveBtnState('saving');
+  const tok = getToken();
 
   const overrides = {
     categories:     window.CUSTOM_OVERRIDES  || {},
@@ -633,25 +633,57 @@ async function saveToGitHub(){
   const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(overrides, null, 2))));
 
   try {
-    const tok = getToken();
-    // Get current SHA of overrides.json
-    const metaRes = await fetch(
-      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/data/overrides.json?ref=${GITHUB_BRANCH}`,
-      { headers: { Authorization: `token ${tok}` } }
-    );
-    const body = { message: `overrides: ${new Date().toLocaleString('zh-CN')}`, content: encoded, branch: GITHUB_BRANCH };
-    if(metaRes.ok){ const m = await metaRes.json(); body.sha = m.sha; }
+    // If we don't have a fresh SHA, fetch it first
+    if(!_dataFileSHA){
+      const metaRes = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/data/overrides.json?ref=${GITHUB_BRANCH}`,
+        { headers: { Authorization: `token ${tok}` } }
+      );
+      if(metaRes.ok){ const m = await metaRes.json(); _dataFileSHA = m.sha; }
+    }
+
+    const body = {
+      message: `overrides: ${new Date().toLocaleString('zh-CN')}`,
+      content: encoded,
+      branch: GITHUB_BRANCH
+    };
+    if(_dataFileSHA) body.sha = _dataFileSHA;
 
     const res = await fetch(
       `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/data/overrides.json`,
       { method: 'PUT', headers: { Authorization: `token ${tok}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
     );
-    if(!res.ok){ const e = await res.json(); throw new Error(e.message || res.status); }
-    await res.json();
+
+    if(res.status === 409){
+      // SHA conflict — fetch real current SHA and retry once
+      _dataFileSHA = null;
+      const metaRes2 = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/data/overrides.json?ref=${GITHUB_BRANCH}&t=${Date.now()}`,
+        { headers: { Authorization: `token ${tok}`, 'Cache-Control': 'no-cache' } }
+      );
+      if(!metaRes2.ok) throw new Error('SHA 刷新失败');
+      const m2 = await metaRes2.json();
+      _dataFileSHA = m2.sha;
+      body.sha = _dataFileSHA;
+
+      const res2 = await fetch(
+        `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/data/overrides.json`,
+        { method: 'PUT', headers: { Authorization: `token ${tok}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+      );
+      if(!res2.ok){ const e2 = await res2.json(); throw new Error(e2.message || res2.status); }
+      const saved2 = await res2.json();
+      _dataFileSHA = saved2.content.sha; // store fresh SHA for next save
+    } else {
+      if(!res.ok){ const e = await res.json(); throw new Error(e.message || res.status); }
+      const saved = await res.json();
+      _dataFileSHA = saved.content.sha; // store fresh SHA for next save
+    }
+
     setSaveBtnState('saved');
     showToast('已同步到 GitHub ✓', 'success');
   } catch(e){
     console.error('GitHub save error:', e);
+    _dataFileSHA = null; // reset so next save re-fetches SHA
     setSaveBtnState('error');
     showToast('同步失败: ' + e.message, 'warning');
   }
