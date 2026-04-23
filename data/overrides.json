@@ -1,7 +1,9 @@
 {
-  "categories": {},
+  "categories": {
+    "x:SomeTestUser:TestName": "AI / 科技"
+  },
   "unsubscribe": {},
   "feedback": {},
   "recently_added": [],
-  "saved_at": ""
+  "saved_at": "2026-04-23T08:41:49.009Z"
 }
