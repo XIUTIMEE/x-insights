@@ -563,43 +563,34 @@ function scheduleSave(){
 
 async function saveToGitHub(){
   const token = getToken();
-  if(!token){ showToast('未设置 GitHub Token，操作仅本地保存', 'warning'); return; }
+  if(!token){ showToast('请先连接 GitHub Token 才能保存', 'warning'); return; }
 
+  // Save ONLY overrides to a tiny separate file (data/overrides.json)
+  // This avoids the 1MB GitHub API limit caused by encoding the full 2MB accounts file
   const overrides = {
-    categories: window.CUSTOM_OVERRIDES || {},
-    unsubscribe: window.UNSUB_OVERRIDES || {},
-    feedback: window.ADMIN_FEEDBACK || {},
-    recently_added: (window.RECENTLY_ADDED || []).map(a => {
-      const {score_breakdown, ...rest} = a;
-      return {...rest};
-    })
+    categories:     window.CUSTOM_OVERRIDES  || {},
+    unsubscribe:    window.UNSUB_OVERRIDES   || {},
+    feedback:       window.ADMIN_FEEDBACK    || {},
+    recently_added: window.RECENTLY_ADDED    || [],
+    saved_at: new Date().toISOString()
   };
 
-  const payload = {
-    version: 2,
-    last_updated: new Date().toISOString().slice(0,10),
-    accounts: ACCOUNTS_DATA.map(a => {
-      const {score_breakdown, ...rest} = a;
-      return {...rest, score_breakdown};
-    }),
-    overrides
-  };
-
-  const body = JSON.stringify({
-    message: `data: save user state (${new Date().toLocaleString('zh-CN')})`,
-    content: btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2)))),
-    branch: GITHUB_BRANCH,
-    sha: _dataFileSHA
-  });
+  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(overrides, null, 2))));
 
   try {
+    // Get current SHA of overrides.json (if it exists)
+    const metaRes = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/data/overrides.json?ref=${GITHUB_BRANCH}`,
+      { headers: { Authorization: `token ${token}` } }
+    );
+    const body = { message: `overrides: ${new Date().toLocaleString('zh-CN')}`, content: encoded, branch: GITHUB_BRANCH };
+    if(metaRes.ok){ const m = await metaRes.json(); body.sha = m.sha; }
+
     const res = await fetch(
-      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_PATH}`,
-      { method: 'PUT', headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' }, body }
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/data/overrides.json`,
+      { method: 'PUT', headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
     );
     if(!res.ok){ const e=await res.json(); throw new Error(e.message); }
-    const data = await res.json();
-    _dataFileSHA = data.content.sha;
     showToast('已同步到 GitHub ✓', 'success');
   } catch(e){
     console.error('GitHub save error:', e);
@@ -610,18 +601,30 @@ async function saveToGitHub(){
 async function loadFromGitHub(){
   const token = getToken();
   const apiHeaders = token ? { Authorization: `token ${token}` } : {};
+  const t = Date.now();
   try {
-    // Parallel: fetch raw JSON + fetch SHA metadata at the same time
-    const rawUrl = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${DATA_PATH}?t=${Date.now()}`;
-    const metaUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_PATH}?ref=${GITHUB_BRANCH}`;
-    const [rawRes, metaRes] = await Promise.all([
-      fetch(rawUrl, { headers: apiHeaders }),
-      fetch(metaUrl, { headers: apiHeaders })
+    // Fetch accounts (raw, fast) + overrides.json in parallel
+    const [accountsRes, overridesRes] = await Promise.all([
+      fetch(`https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${DATA_PATH}?t=${t}`, { headers: apiHeaders }),
+      fetch(`https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/data/overrides.json?t=${t}`, { headers: apiHeaders })
     ]);
-    if(!rawRes.ok) throw new Error('raw HTTP ' + rawRes.status);
-    const json = await rawRes.json();
-    // Store SHA for saves (works even without token on public repos)
-    if(metaRes.ok){ const meta = await metaRes.json(); _dataFileSHA = meta.sha; }
+    if(!accountsRes.ok) throw new Error('accounts HTTP ' + accountsRes.status);
+    const json = await accountsRes.json();
+
+    // Load overrides from separate file (takes priority over anything in accounts.json)
+    if(overridesRes.ok){
+      const ov = await overridesRes.json();
+      json.overrides = ov; // inject into accounts payload so applyOverrides() picks it up
+    }
+
+    // Get SHA for accounts.json (needed if we ever need to update it)
+    // Also get SHA for overrides.json via API
+    if(token){
+      fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_PATH}?ref=${GITHUB_BRANCH}`,
+        { headers: apiHeaders })
+        .then(r=>r.json()).then(m=>{ if(m.sha) _dataFileSHA = m.sha; }).catch(()=>{});
+    }
+
     return json;
   } catch(e){
     console.error('GitHub load error:', e);
