@@ -11,7 +11,13 @@
     "x:test3:user": "AI / 科技",
     "youtube:NailCareerEducation:NailCareerEducation": "美妆个护",
     "youtube:AnastasiaBeverlyHills:AnastasiaBeverlyHills": "美妆个护",
-    "youtube:MorganTurnerMakeup:MorganTurnerMakeup": "美妆个护"
+    "youtube:MorganTurnerMakeup:MorganTurnerMakeup": "美妆个护",
+    "youtube:CharlotteTilbury:CharlotteTilbury": "美妆个护",
+    "youtube:Sephora:Sephora": "美妆个护",
+    "youtube:NailsInspiration:NailsInspiration": "美妆个护",
+    "youtube:Vogue:Vogue": "美妆个护",
+    "youtube:SaidaNailsOfficial:SaidaNailsOfficial": "美妆个护",
+    "youtube:ELLE:ELLE": "美妆个护"
   },
   "custom_categories": {
     "美妆个护": "#f97316"
@@ -31,9 +37,18 @@
     },
     "youtube:AnastasiaBeverlyHills:AnastasiaBeverlyHills": {
       "suggested_unsubscribe": false
+    },
+    "youtube:MorganTurnerMakeup:MorganTurnerMakeup": {
+      "suggested_unsubscribe": false
+    },
+    "youtube:Sephora:Sephora": {
+      "suggested_unsubscribe": false
+    },
+    "youtube:CharlotteTilbury:CharlotteTilbury": {
+      "suggested_unsubscribe": false
     }
   },
   "feedback": {},
   "recently_added": [],
-  "saved_at": "2026-04-23T09:19:28.657Z"
+  "saved_at": "2026-04-23T09:20:25.840Z"
 }
