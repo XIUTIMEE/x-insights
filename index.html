@@ -600,29 +600,22 @@ async function saveToGitHub(){
 
 async function loadFromGitHub(){
   const token = getToken();
-  const apiHeaders = token ? { Authorization: `token ${token}` } : {};
+  // IMPORTANT: raw.githubusercontent.com does NOT support Authorization header (CORS preflight fails)
+  // So we always fetch raw URLs without any headers (works fine for public repos)
   const t = Date.now();
   try {
-    // Fetch accounts (raw, fast) + overrides.json in parallel
+    // Fetch accounts + overrides in parallel, NO auth headers on raw URLs
     const [accountsRes, overridesRes] = await Promise.all([
-      fetch(`https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${DATA_PATH}?t=${t}`, { headers: apiHeaders }),
-      fetch(`https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/data/overrides.json?t=${t}`, { headers: apiHeaders })
+      fetch(`https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${DATA_PATH}?t=${t}`),
+      fetch(`https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/data/overrides.json?t=${t}`)
     ]);
     if(!accountsRes.ok) throw new Error('accounts HTTP ' + accountsRes.status);
     const json = await accountsRes.json();
 
-    // Load overrides from separate file (takes priority over anything in accounts.json)
+    // Merge overrides from separate tiny file
     if(overridesRes.ok){
       const ov = await overridesRes.json();
-      json.overrides = ov; // inject into accounts payload so applyOverrides() picks it up
-    }
-
-    // Get SHA for accounts.json (needed if we ever need to update it)
-    // Also get SHA for overrides.json via API
-    if(token){
-      fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_PATH}?ref=${GITHUB_BRANCH}`,
-        { headers: apiHeaders })
-        .then(r=>r.json()).then(m=>{ if(m.sha) _dataFileSHA = m.sha; }).catch(()=>{});
+      json.overrides = ov;
     }
 
     return json;
