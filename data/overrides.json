@@ -8,7 +8,12 @@
     "save1:test:user": "AI / 科技",
     "x:test1:user": "AI / 科技",
     "x:test2:user": "AI / 科技",
-    "x:test3:user": "AI / 科技"
+    "x:test3:user": "AI / 科技",
+    "youtube:NailCareerEducation:NailCareerEducation": "美妆个护",
+    "youtube:AnastasiaBeverlyHills:AnastasiaBeverlyHills": "美妆个护"
+  },
+  "custom_categories": {
+    "美妆个护": "#f97316"
   },
   "unsubscribe": {
     "youtube:GQTaiwan:GQTaiwan": {
@@ -16,9 +21,18 @@
     },
     "youtube:newnails1316:newnails1316": {
       "suggested_unsubscribe": false
+    },
+    "youtube:youngnailsinc:youngnailsinc": {
+      "suggested_unsubscribe": false
+    },
+    "youtube:NailCareerEducation:NailCareerEducation": {
+      "suggested_unsubscribe": false
+    },
+    "youtube:AnastasiaBeverlyHills:AnastasiaBeverlyHills": {
+      "suggested_unsubscribe": false
     }
   },
   "feedback": {},
   "recently_added": [],
-  "saved_at": "2026-04-23T09:03:00.216Z"
+  "saved_at": "2026-04-23T09:19:16.963Z"
 }
