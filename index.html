@@ -609,21 +609,18 @@ async function saveToGitHub(){
 
 async function loadFromGitHub(){
   const token = getToken();
-  // Step 1: Get SHA via API (lightweight metadata call)
-  const metaUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_PATH}?ref=${GITHUB_BRANCH}`;
   const apiHeaders = token ? { Authorization: `token ${token}` } : {};
   try {
-    // Get file SHA (needed for future saves)
-    const metaRes = await fetch(metaUrl, { headers: apiHeaders });
-    if(!metaRes.ok) throw new Error('meta HTTP ' + metaRes.status);
-    const meta = await metaRes.json();
-    _dataFileSHA = meta.sha;
-    // Step 2: Download raw JSON directly (3-5x faster than base64 decode)
+    // Step 1: raw JSON (fast, no base64, works on public repos without token)
     const rawUrl = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${DATA_PATH}?t=${Date.now()}`;
-    const rawHeaders = token ? { Authorization: `token ${token}` } : {};
-    const rawRes = await fetch(rawUrl, { headers: rawHeaders });
+    const rawRes = await fetch(rawUrl, { headers: apiHeaders });
     if(!rawRes.ok) throw new Error('raw HTTP ' + rawRes.status);
     const json = await rawRes.json();
+    // Step 2: get SHA separately (needed for saves) — only if token available
+    if(token){
+      const metaRes = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_PATH}?ref=${GITHUB_BRANCH}`, { headers: apiHeaders });
+      if(metaRes.ok){ const meta = await metaRes.json(); _dataFileSHA = meta.sha; }
+    }
     return json;
   } catch(e){
     console.error('GitHub load error:', e);
@@ -2533,19 +2530,9 @@ function applyOverrides(overrides){
 
 async function init(){
   const overlay = document.getElementById('loadingOverlay');
+  if(overlay) overlay.style.display='flex';
 
-  // If no token, show modal FIRST before trying to load
-  if(!getToken()){
-    if(overlay) overlay.style.display='none';
-    showTokenModal();
-    // Wait for token to be set
-    await new Promise(resolve => {
-      const check = setInterval(()=>{ if(getToken()){ clearInterval(check); resolve(); } }, 300);
-    });
-    if(overlay) overlay.style.display='flex';
-  }
-
-  // Load data from GitHub
+  // Load data (raw URL works without token on public repo)
   const githubData = await loadFromGitHub();
 
   if(githubData && githubData.accounts && githubData.accounts.length){
@@ -2553,18 +2540,30 @@ async function init(){
     githubData.accounts.forEach(a => ACCOUNTS_DATA.push(a));
     applyOverrides(githubData.overrides || {});
   } else {
-    // Load failed even with token
     if(overlay) overlay.style.display='none';
-    showToast('数据加载失败，请检查 Token 是否正确', 'error');
+    showToast('数据加载失败，请稍候重试', 'error');
+    // Retry once after 2s
+    setTimeout(async () => {
+      const retry = await loadFromGitHub();
+      if(retry && retry.accounts && retry.accounts.length){
+        ACCOUNTS_DATA.length = 0;
+        retry.accounts.forEach(a => ACCOUNTS_DATA.push(a));
+        applyOverrides(retry.overrides || {});
+        updatePlatformCounts(); renderDaily(); initAllBatchBar();
+        if(!getToken()) setTimeout(showTokenModal, 800);
+      }
+    }, 2000);
     return;
   }
 
-  // Hide loading overlay
   if(overlay) overlay.style.display='none';
-
   updatePlatformCounts();
   renderDaily();
   initAllBatchBar();
+
+  // Token modal: shown AFTER data loads, non-blocking
+  // Token is only needed for saving changes back to GitHub
+  if(!getToken()) setTimeout(showTokenModal, 800);
 }
 init();
 </script>
