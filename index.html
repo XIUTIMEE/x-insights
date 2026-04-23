@@ -659,21 +659,25 @@ async function saveToGitHub(){
 
 async function loadFromGitHub(){
   const token = getToken();
-  // IMPORTANT: raw.githubusercontent.com does NOT support Authorization header (CORS preflight fails)
-  // So we always fetch raw URLs without any headers (works fine for public repos)
   const t = Date.now();
   try {
-    // Fetch accounts + overrides in parallel, NO auth headers on raw URLs
-    const [accountsRes, overridesRes] = await Promise.all([
-      fetch(`https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${DATA_PATH}?t=${t}`),
-      fetch(`https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/data/overrides.json?t=${t}`)
-    ]);
+    // accounts.json: use raw (2MB, no auth header to avoid CORS preflight)
+    const accountsRes = await fetch(
+      `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${DATA_PATH}?t=${t}`
+    );
     if(!accountsRes.ok) throw new Error('accounts HTTP ' + accountsRes.status);
     const json = await accountsRes.json();
 
-    // Merge overrides from separate tiny file
-    if(overridesRes.ok){
-      const ov = await overridesRes.json();
+    // overrides.json: use GitHub API (no CDN cache, always fresh)
+    // API returns base64 content — decode it
+    const apiHeaders = token ? { Authorization: `token ${token}` } : {};
+    const ovRes = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/data/overrides.json?ref=${GITHUB_BRANCH}`,
+      { headers: apiHeaders }
+    );
+    if(ovRes.ok){
+      const meta = await ovRes.json();
+      const ov = JSON.parse(decodeURIComponent(escape(atob(meta.content.replace(/\n/g,'')))));
       json.overrides = ov;
     }
 
