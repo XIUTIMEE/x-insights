@@ -624,10 +624,11 @@ async function saveToGitHub(){
   const tok = getToken();
 
   const overrides = {
-    categories:     window.CUSTOM_OVERRIDES  || {},
-    unsubscribe:    window.UNSUB_OVERRIDES   || {},
-    feedback:       window.ADMIN_FEEDBACK    || {},
-    recently_added: window.RECENTLY_ADDED    || [],
+    categories:        window.CUSTOM_OVERRIDES  || {},
+    custom_categories: window.CUSTOM_CATEGORIES || {},  // user-created category names + colors
+    unsubscribe:       window.UNSUB_OVERRIDES   || {},
+    feedback:          window.ADMIN_FEEDBACK    || {},
+    recently_added:    window.RECENTLY_ADDED    || [],
     saved_at: new Date().toISOString()
   };
   const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(overrides, null, 2))));
@@ -794,7 +795,9 @@ window.ADMIN_FEEDBACK = {}; // key -> {text, score_suggestion, timestamp}
 const MAX_BATCH = 10;
 
 function catOptions(selected){
-  const cats = ['','跨境电商','Web3 / 加密','财经投资商业','政治','AI / 科技','其他'];
+  const base = ['','跨境电商','Web3 / 加密','财经投资商业','政治','AI / 科技','其他'];
+  const custom = Object.keys(window.CUSTOM_CATEGORIES || {});
+  const cats = [...new Set([...base, ...custom])];
   return cats.map(c=>
     `<option value="${c}"${c===selected?' selected':''}>${c||'— 自动判断 —'}</option>`
   ).join('');
@@ -1139,6 +1142,8 @@ function openBatchCategoryPopover(target, keys, onDone){
 
 
 const CATEGORIES = ['跨境电商','Web3 / 加密','财经投资商业','政治','AI / 科技','其他'];
+// Always use allCategories() instead of CATEGORIES directly — includes user-created ones
+function allCategories(){ return [...new Set([...CATEGORIES, ...Object.keys(window.CUSTOM_CATEGORIES||{})])]; }
 const CAT_COLORS = {
   '跨境电商':'#f97316','Web3 / 加密':'#a78bfa','财经投资商业':'#facc15',
   '政治':'#f87171','AI / 科技':'#38bdf8','其他':'#64748b'
@@ -1218,7 +1223,7 @@ function renderDaily(){
   document.getElementById('dailyTotal').textContent = scoped.length.toLocaleString();
 
   const grid = document.getElementById('newsGrid');
-  const sections = CATEGORIES.map(cat => {
+  const sections = allCategories().map(cat => {
     const catAccts = scoped.filter(a => effectiveCategory(a) === cat).sort((a,b)=>b.quality_score - a.quality_score);
     return { cat, accounts: catAccts.slice(0,3), total: catAccts.length };
   });
@@ -1291,13 +1296,15 @@ function renderDaily(){
 /* ============ TAB 2: TRACKER ============ */
 function renderTracker(){
   const sel = document.getElementById('industrySelect');
-  if(!sel.options.length){
-    CATEGORIES.forEach(c=>{
+  if(!sel.options.length || sel.options.length !== allCategories().length){
+    const prev = sel.value;
+    while(sel.options.length) sel.remove(0);
+    allCategories().forEach(c=>{
       const o = document.createElement('option');
       o.value = c; o.textContent = c;
       sel.appendChild(o);
     });
-    sel.value = 'AI / 科技';
+    sel.value = prev || 'AI / 科技';
     sel.addEventListener('change', renderTrackerContent);
   }
   const dot = document.getElementById('indSelectDot');
@@ -1369,12 +1376,16 @@ function renderTrackerContent(){
 function renderAnalysis(){
   // category filter options
   const cf = document.getElementById('categoryFilter');
-  if(cf && cf.options.length <= 1){
-    CATEGORIES.forEach(c=>{
+  // Rebuild category filter each time (custom categories may have been added)
+  if(cf){
+    const current = cf.value;
+    while(cf.options.length > 1) cf.remove(1);
+    allCategories().forEach(c=>{
       const o = document.createElement('option');
       o.value = c; o.textContent = c;
       cf.appendChild(o);
     });
+    if(current) cf.value = current;
   }
   renderAnalysisCounts();
   const panels = ['subpanel-all','subpanel-unsubscribe','subpanel-add','subpanel-overview','subpanel-recommend'];
@@ -1548,7 +1559,7 @@ function renderOverview(){
   const manualAdded= scoped.filter(a=>a.manually_added).length;
 
   // Per-category stats
-  const catStats = CATEGORIES.map(cat=>{
+  const catStats = allCategories().map(cat=>{
     const items = scoped.filter(a=>effectiveCategory(a)===cat);
     const xN  = items.filter(a=>a.platform==='x').length;
     const ytN = items.filter(a=>a.platform==='youtube').length;
@@ -2610,17 +2621,15 @@ function updatePlatformCounts(){
 
 function applyOverrides(overrides){
   if(!overrides) return;
-  if(overrides.categories)  window.CUSTOM_OVERRIDES  = overrides.categories;
-  if(overrides.unsubscribe) window.UNSUB_OVERRIDES    = overrides.unsubscribe;
-  if(overrides.feedback)    window.ADMIN_FEEDBACK     = overrides.feedback;
+  if(overrides.categories)        window.CUSTOM_OVERRIDES  = overrides.categories;
+  if(overrides.unsubscribe)       window.UNSUB_OVERRIDES   = overrides.unsubscribe;
+  if(overrides.feedback)          window.ADMIN_FEEDBACK    = overrides.feedback;
+  if(overrides.custom_categories) window.CUSTOM_CATEGORIES = overrides.custom_categories;
   if(overrides.recently_added && overrides.recently_added.length){
     window.RECENTLY_ADDED = overrides.recently_added;
-    // Re-inject recently added accounts into ACCOUNTS_DATA if not already present
     for(const a of window.RECENTLY_ADDED){
       const key = acctKey(a);
-      if(!ACCOUNTS_DATA.find(x=>acctKey(x)===key)){
-        ACCOUNTS_DATA.unshift(a);
-      }
+      if(!ACCOUNTS_DATA.find(x=>acctKey(x)===key)) ACCOUNTS_DATA.unshift(a);
     }
   }
 }
